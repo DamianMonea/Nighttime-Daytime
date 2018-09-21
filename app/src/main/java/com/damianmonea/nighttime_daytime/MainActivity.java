@@ -1,6 +1,7 @@
 package com.damianmonea.nighttime_daytime;
 
 import android.content.Context;
+import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.drawable.TransitionDrawable;
 import android.hardware.Sensor;
@@ -8,11 +9,15 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.media.MediaPlayer;
+import android.os.Build;
 import android.provider.MediaStore;
 import android.support.constraint.ConstraintLayout;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.transition.Transition;
+import android.util.Log;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.TextView;
 
 import org.w3c.dom.Text;
@@ -25,11 +30,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private SensorManager mySensorManager;
     private Sensor mSensorLight;
     private TextView label;
-    private boolean Nighttime;
+    private boolean Nighttime, canChangeStatus, firstTime;
     private ConstraintLayout myLayout;
     private TransitionDrawable bgTransition;
     private MediaPlayer nighttime1, daytime1, nighttime2, daytime2, nighttime3, daytime3;
     private Random randomizer = new Random();
+    private Window window;
+    private float brightness;
+    private int index;
+    private long lastTime, currentTime, timeDifference;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -47,6 +56,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             label.setText(R.string.sensor_error);
         }
         Nighttime = true;
+        canChangeStatus = true;
+        firstTime = true;
 
         nighttime1 = MediaPlayer.create(this, R.raw.nighttime1);
         daytime1 = MediaPlayer.create(this, R.raw.daytime1);
@@ -54,6 +65,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         daytime2 = MediaPlayer.create(this, R.raw.daytime2);
         nighttime3 = MediaPlayer.create(this, R.raw.nighttime3);
         daytime3 = MediaPlayer.create(this, R.raw.daytime3);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            canChangeStatus = true;
+            window = getWindow();
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        }
+
+        currentTime = System.currentTimeMillis();
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
     }
 
     @Override
@@ -74,14 +98,22 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     @Override
     public void onSensorChanged(SensorEvent event) {
         float currentLux = 0;
-        int index;
+        brightness = event.values[0];
+        lastTime = currentTime;
+        currentTime = System.currentTimeMillis();
+        timeDifference = currentTime - lastTime;
         if( event.sensor.getType() == Sensor.TYPE_LIGHT)
         {
             currentLux = event.values[0];
         }
-        if(currentLux < 50 && Nighttime == false){
+        if(currentLux < 50 && Nighttime == false && timeDifference > 30){
             Nighttime = true;
             index = randomizer.nextInt(3);
+            if(firstTime == true)
+                firstTime = false;
+            if(canChangeStatus == true){
+                window.setStatusBarColor(Color.WHITE);
+            }
             switch(index){
                 case 0: nighttime1.start(); break;
                 case 1: nighttime2.start(); break;
@@ -92,9 +124,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             bgTransition.startTransition(300);
 
         }
-        if(currentLux > 50 && Nighttime == true){
+        if(currentLux > 50 && Nighttime == true && timeDifference > 30){
             Nighttime = false;
+            if(firstTime == true)
+                firstTime = false;
             index = randomizer.nextInt(3);
+            if(canChangeStatus == true){
+                window.setStatusBarColor(Color.BLACK);
+            }
             switch(index){
                 case 0: daytime1.start(); break;
                 case 1: daytime2.start(); break;
@@ -103,12 +140,39 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             label.setText(R.string.daytime);
             label.setTextColor(Color.BLACK);
             bgTransition.reverseTransition(300);
-
         }
+        if(currentLux < 50 && Nighttime == true && firstTime == true){
+            Nighttime = true;
+            firstTime = false;
+            index = randomizer.nextInt(3);
+            if(canChangeStatus == true){
+                window.setStatusBarColor(Color.WHITE);
+            }
+            switch(index){
+                case 0: nighttime1.start(); break;
+                case 1: nighttime2.start(); break;
+                case 2: nighttime3.start(); break;
+            }
+            label.setText(R.string.nighttime);
+            label.setTextColor(Color.WHITE);
+            bgTransition.startTransition(300);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        startService(new Intent(this, MyService.class));
     }
 
     @Override
     public final void onAccuracyChanged(Sensor sensor, int accuracy){
 
+    }
+
+    @Override
+    protected void onPostResume() {
+        super.onPostResume();
+        stopService(new Intent(this, MyService.class));
     }
 }
